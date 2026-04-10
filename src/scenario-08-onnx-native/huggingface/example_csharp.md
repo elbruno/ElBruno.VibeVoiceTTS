@@ -74,7 +74,8 @@ var encoderInputs = new List<NamedOnnxValue>
     NamedOnnxValue.CreateFromTensor("attention_mask", maskTensor)
 };
 
-// TODO: Verify tensor names match exported model
+// NOTE: Verify tensor names match your exported text_encoder.onnx by inspecting 
+// with Netron or using ort.InferenceSession.GetInputNames().
 using var encoderResults = textEncoder.Run(encoderInputs);
 var hiddenStates = encoderResults.First().AsTensor<float>().ToArray();
 Console.WriteLine($"📝 Text encoded: {hiddenStates.Length} values");

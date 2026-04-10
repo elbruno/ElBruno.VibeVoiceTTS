@@ -1,31 +1,37 @@
 # Scenario 7 — .NET MAUI Cross-Platform TTS App
 
-A .NET MAUI application that provides a clean, modern UI for text-to-speech using the VibeVoice Python backend. Works on **Windows, macOS, Android, and iOS**.
+A .NET MAUI application that provides a clean, modern UI for text-to-speech using **in-process ONNX inference** via the [`ElBruno.VibeVoiceTTS`](https://www.nuget.org/packages/ElBruno.VibeVoiceTTS) NuGet package. Works on **Windows, macOS, Android, and iOS** — no Python backend required.
 
 ## What This Shows
 
 - Cross-platform native app with a single C# / XAML codebase
-- Calling a Python TTS backend over HTTP from a mobile/desktop client
+- In-process TTS inference using ONNX Runtime (no external server)
+- Automatic model download from HuggingFace on first run
+- 6 voice presets: Carter, Davis, Emma, Frank, Grace, Mike
 - Audio playback on all platforms via `Plugin.Maui.Audio`
 - Modern dark-themed UI with .NET MAUI controls
 
 ## Architecture
 
 ```
-┌────────────────────┐        HTTP        ┌──────────────────┐
-│  .NET MAUI App     │ ──────────────────▶ │  Python Backend  │
-│  (thin client)     │   POST /api/tts    │  (FastAPI)       │
-│                    │ ◀────────────────── │                  │
-│  • Text input      │     WAV bytes      │  • VibeVoice TTS │
-│  • Voice picker    │                    │  • Voice registry│
-│  • Audio playback  │   GET /api/voices  │  • Health check  │
-└────────────────────┘                    └──────────────────┘
+┌────────────────────────────────────────┐
+│  .NET MAUI App                         │
+│                                        │
+│  ┌──────────────┐  ┌────────────────┐  │
+│  │  UI Layer    │  │  VibeVoiceTTS  │  │
+│  │  • Text input│──│  (ONNX)       │  │
+│  │  • Voice pick│  │               │  │
+│  │  • Playback  │  │  • In-process │  │
+│  └──────────────┘  │  • Auto-DL    │  │
+│                    │  • 6 voices   │  │
+│                    └────────────────┘  │
+└────────────────────────────────────────┘
 ```
 
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/) with MAUI workload
-- Python backend running (see Scenario 2 or start manually on port 5100)
+- ~1.5 GB disk space for ONNX models (auto-downloaded on first run)
 
 ### Install the MAUI workload
 
@@ -34,27 +40,6 @@ dotnet workload install maui
 ```
 
 ## How to Run
-
-### 1. Start the Python backend
-
-```bash
-# From the project root or scenario-02 backend
-cd src/scenario-02-fullstack/backend
-pip install -r requirements.txt
-uvicorn main:app --port 5100
-```
-
-### 2. Configure the backend URL
-
-Edit `MauiProgram.cs` and set `backendUrl` to your backend address:
-
-```csharp
-var backendUrl = "http://localhost:5100";
-```
-
-> For Android emulator, use `http://10.0.2.2:5100` to reach the host machine.
-
-### 3. Run on your platform
 
 ```bash
 # Windows
@@ -70,6 +55,8 @@ dotnet build -t:Run -f net10.0-maccatalyst
 dotnet build -t:Run -f net10.0-ios
 ```
 
+> **First run:** The app will download ONNX models (~1.5 GB) from HuggingFace automatically. A progress indicator shows download status. Subsequent runs start instantly from cache.
+
 ## Screenshots
 
 <!-- TODO: Add screenshots after first build -->
@@ -82,12 +69,13 @@ dotnet build -t:Run -f net10.0-ios
 
 | File | Purpose |
 |------|---------|
-| `MauiProgram.cs` | App setup, DI, HttpClient config |
-| `Services/TtsService.cs` | HTTP client for the TTS backend API |
+| `MauiProgram.cs` | App setup, DI with `AddVibeVoice()` |
+| `Services/VibeVoiceTtsService.cs` | Wraps `IVibeVoiceSynthesizer` for TTS + WAV conversion |
 | `MainPage.xaml` | UI layout (text input, voice picker, playback) |
-| `MainPage.xaml.cs` | Event handlers and audio playback logic |
+| `MainPage.xaml.cs` | Event handlers, model init, and audio playback logic |
 
 ## NuGet Packages
 
+- **ElBruno.VibeVoiceTTS** — In-process ONNX TTS with auto-download from HuggingFace
 - **CommunityToolkit.Maui** — Enhanced MAUI controls and helpers
 - **Plugin.Maui.Audio** — Cross-platform audio playback

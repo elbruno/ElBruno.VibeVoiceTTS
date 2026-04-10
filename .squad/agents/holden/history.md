@@ -10,6 +10,19 @@
 
 ## Learnings
 
+### 2026-02-20: Created comprehensive docs/scenarios.md guide (Issue #21)
+- Successfully created `docs/scenarios.md` as referenced in root README.md Documentation table
+- Document provides complete overview of all 8 scenarios with decision guidance
+- Structure: title + intro, quick comparison table, "When to Use" guide, detailed per-scenario sections
+- Each scenario section includes: what it demonstrates, prerequisites, key tech, how to run, directory path
+- Added Python vs C# usage guide explaining when to choose each language
+- Added voice presets reference table (6 English + multilingual support noted)
+- Added directory structure map showing all 8 scenario folders
+- Added quick reference table with commands for each scenario
+- Read all 8 scenario README files to extract accurate technical details
+- Matched existing docs style (headers, formatting, cross-references)
+- Committed with issue fix reference: `Fixes #21`
+
 ### 2026-02-19: Architecture documentation completed for all 7 scenarios
 - Updated summary table: Scenario 3 now "CSnakes Embedded Python", Scenario 4 now "Real-Time Conversation"
 - Added detailed architecture section for Scenario 3: in-process CPython embedding via CSnakes library, no subprocess overhead, direct function calls from C#, voice presets auto-downloaded
@@ -68,3 +81,19 @@ Install: `pip install "vibevoice[streamingtts] @ git+https://github.com/microsof
 - API contract: /api/health, /api/voices, /api/tts with WAV output at 24kHz
 - Aspire configuration uses `AddUvicornApp` for Python backend integration
 - Frontend uses base64 data URLs for audio playback (no server-side file storage)
+
+### 2026-02-19: Created comprehensive project-structure.md documentation (Fixes #20)
+- Analyzed full repository tree including 8 scenarios, core library, and test suites
+- Examined directory structure and existing docs for style consistency
+- Created docs/project-structure.md with:
+  - Overview intro explaining role of framework
+  - Complete visual directory tree with all major paths
+  - Top-level directory reference table (11 directories documented)
+  - Detailed core library structure (.csproj, interfaces, synthesizer, pipeline, utils)
+  - Test project organization (13 test files across unit, integration, security)
+  - 8 scenario implementations: simple Python → MAUI mobile → native ONNX
+  - Documentation structure reference
+  - Squad AI team orchestration overview (agents, decisions, skills)
+- Committed with "Fixes #20" linking to GitHub issue
+- Documentation follows consistent markdown style with headers, tables, code blocks
+- Cross-references to related docs (GETTING_STARTED, API_REFERENCE, ARCHITECTURE)

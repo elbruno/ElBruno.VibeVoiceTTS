@@ -143,13 +143,14 @@ def run_pipeline(
     attention_mask = np.ones_like(token_ids, dtype=np.int64)
     encoder_inputs = {"input_ids": token_ids, "attention_mask": attention_mask}
 
-    # TODO: Verify input/output names match exported model (use Netron to inspect)
+    # NOTE: Input/output names ("input_ids", "attention_mask") are standard BERT encoder names.
+    # Verify actual names match your exported model by inspecting with Netron or model inspection.
     hidden_states = text_encoder.run(None, encoder_inputs)[0]
     print(f"   📝 Text encoded: shape {hidden_states.shape}")
 
     # --- Step 2: Diffusion denoising loop ---
     rng = np.random.RandomState(seed)
-    latent_shape = (1, 1024, 50)  # TODO: verify after export
+    latent_shape = (1, 1024, 50)  # NOTE: verify these dimensions match your exported model
     latents = rng.randn(*latent_shape).astype(np.float32)
 
     # Linear beta schedule

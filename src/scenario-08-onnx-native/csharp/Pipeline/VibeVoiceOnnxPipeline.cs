@@ -1,10 +1,18 @@
 // =============================================================================
 // VibeVoiceOnnxPipeline — Main TTS Orchestrator (ONNX Runtime)
 // =============================================================================
+// REFERENCE/ILLUSTRATIVE CODE
+// This file demonstrates the TTS inference pipeline conceptually.
+// For production-grade inference, see the ElBruno.VibeVoiceTTS NuGet library.
+//
 // Loads the three ONNX model stages and runs the full TTS pipeline:
 //   Tokenize → TextEncoder → DiffusionLoop → AcousticDecoder → float[] audio
 //
 // All inference runs on ONNX Runtime — no Python, no HTTP, no subprocess.
+// 
+// NOTE: Tensor names and dimensions used here are illustrative placeholders
+// based on common ONNX TTS patterns. Inspect your exported models with Netron
+// to verify actual tensor names and shapes.
 // =============================================================================
 
 using Microsoft.ML.OnnxRuntime;
@@ -36,7 +44,8 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
     /// <summary>Random seed for reproducible noise generation (-1 for random).</summary>
     public int Seed { get; set; } = 42;
 
-    // TODO: Verify these dimensions after exporting models — they depend on the VibeVoice architecture.
+    // NOTE: These dimensions are illustrative placeholders based on common TTS architectures.
+    // Verify actual dimensions by inspecting your exported models (use Netron or onnxruntime).
     private const int LatentDim = 1024;
     private const int LatentLength = 50;
 
@@ -110,7 +119,8 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
     private float[] RunTextEncoder(int[] tokenIds)
     {
         // Create input tensors
-        // TODO: Verify input/output tensor names after model export (inspect with Netron or onnxruntime)
+        // NOTE: "input_ids" and "attention_mask" are standard BERT-style encoder names.
+        // Verify these match your exported model by inspecting with Netron or onnxruntime.
         var inputIdsTensor = TensorHelpers.CreateTensor(
             tokenIds.Select(id => (long)id).ToArray(),
             [1, tokenIds.Length]);
@@ -128,7 +138,9 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
         // Run inference
         using var results = _textEncoder.Run(inputs);
 
-        // TODO: Verify output tensor name — commonly "last_hidden_state" or "hidden_states"
+        // NOTE: Output tensor name is commonly "last_hidden_state" or "hidden_states".
+        // Verify the actual name by inspecting your exported model with Netron.
+        // This code assumes single output (first result).
         var outputTensor = results.First().AsTensor<float>();
         return outputTensor.ToArray();
     }
@@ -143,7 +155,8 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
         {
             var presets = _voicePresets.GetVoicePreset(voice);
 
-            // TODO: Verify the key name used for voice conditioning in the exported model
+            // NOTE: Preset keys like "speaker_embedding" or "voice_conditioning" are illustrative.
+            // The actual key names depend on your voice preset export format.
             if (presets.TryGetValue("speaker_embedding", out var embedding))
                 return embedding;
 
@@ -160,7 +173,7 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
         }
 
         // Fallback: zero conditioning (no voice-specific style)
-        // TODO: Verify the expected conditioning vector dimension
+        // NOTE: 256 is a common conditioning dimension; verify for your exported model.
         return new float[256];
     }
 
@@ -207,7 +220,8 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
     /// </summary>
     private float[] RunDiffusionStep(float[] latents, float[] hiddenStates, float[] voiceConditioning, int timestep)
     {
-        // TODO: Verify tensor names and shapes after model export
+        // NOTE: Tensor names ("latent_sample", "encoder_hidden_states", etc.) are illustrative.
+        // Inspect your exported diffusion_step.onnx with Netron to verify actual names.
         var latentTensor = TensorHelpers.CreateTensor(latents, [1, LatentDim, LatentLength]);
         var hiddenTensor = TensorHelpers.CreateTensor(hiddenStates,
             [1, hiddenStates.Length / LatentDim, LatentDim]);
@@ -224,7 +238,8 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
 
         using var results = _diffusionStep.Run(inputs);
 
-        // TODO: Verify output tensor name — commonly "noise_pred" or "sample"
+        // NOTE: Output tensor name is commonly "noise_pred" or "sample".
+        // Verify by inspecting your exported diffusion_step.onnx with Netron.
         var outputTensor = results.First().AsTensor<float>();
         return outputTensor.ToArray();
     }
@@ -234,7 +249,8 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
     /// </summary>
     private float[] RunAcousticDecoder(float[] latents)
     {
-        // TODO: Verify tensor names after model export
+        // NOTE: Input tensor name "latent_input" is illustrative. 
+        // Verify by inspecting your exported acoustic_decoder.onnx with Netron.
         var latentTensor = TensorHelpers.CreateTensor(latents, [1, LatentDim, LatentLength]);
 
         var inputs = new List<NamedOnnxValue>
@@ -244,7 +260,8 @@ public sealed class VibeVoiceOnnxPipeline : IDisposable
 
         using var results = _acousticDecoder.Run(inputs);
 
-        // TODO: Verify output tensor name — commonly "waveform" or "audio"
+        // NOTE: Output tensor name is commonly "waveform" or "audio".
+        // Verify by inspecting your exported acoustic_decoder.onnx with Netron.
         var outputTensor = results.First().AsTensor<float>();
         float[] audio = outputTensor.ToArray();
 

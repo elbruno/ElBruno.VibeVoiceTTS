@@ -194,7 +194,7 @@ This repository includes example projects demonstrating different ways to use Vi
 | 4 | ✅ | [Full C# with Aspire](src/scenario-04-meai/) | C# + Blazor + Aspire | Intermediate | Full-stack C# app with WebAPI + Blazor frontend |
 | 5 | ✅ | [Batch Processing](src/scenario-05-batch-processing/) | Python | Intermediate | CLI to convert folders of .txt to .wav |
 | 6 | ✅ | [Real-Time Streaming](src/scenario-06-streaming-realtime/) | Python | Intermediate | Chunked audio playback for low-latency |
-| 7 | 🚧 | [MAUI Mobile](src/scenario-07-maui-mobile/) | C# (.NET 10 MAUI) | Advanced | Cross-platform app — **work in progress** (currently uses Python backend, migration to `ElBruno.VibeVoiceTTS` planned) |
+| 7 | ✅ | [MAUI Mobile](src/scenario-07-maui-mobile/) | C# (.NET 10 MAUI) | Advanced | Cross-platform app with in-process ONNX TTS via `ElBruno.VibeVoiceTTS` NuGet package |
 | 8 | ✅ | [ONNX Export](src/scenario-08-onnx-native/) | Python → C# | Advanced | ONNX model export tools and pipeline docs |
 
 > **Note:** Python scenarios (1, 2, 5, 6) are primarily for ONNX model export, testing, and reference. The C# scenarios (3, 4) run entirely in .NET with no Python dependency. See the [Scenarios Guide](docs/scenarios.md) for details.

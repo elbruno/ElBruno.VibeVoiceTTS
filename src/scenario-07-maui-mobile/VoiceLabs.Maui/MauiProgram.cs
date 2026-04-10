@@ -1,4 +1,5 @@
 using CommunityToolkit.Maui;
+using ElBruno.VibeVoiceTTS.Extensions;
 using Plugin.Maui.Audio;
 using VoiceLabs.Maui.Services;
 
@@ -18,15 +19,13 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
 
-        // Backend URL — change this to your Python backend address
-        var backendUrl = "http://localhost:5100";
-
-        builder.Services.AddHttpClient<TtsService>(client =>
+        // In-process ONNX TTS — no Python backend required
+        builder.Services.AddVibeVoice(options =>
         {
-            client.BaseAddress = new Uri(backendUrl);
-            client.Timeout = TimeSpan.FromSeconds(60);
+            options.DiffusionSteps = 20;
         });
 
+        builder.Services.AddSingleton<VibeVoiceTtsService>();
         builder.Services.AddSingleton(AudioManager.Current);
         builder.Services.AddTransient<MainPage>();
 

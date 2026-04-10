@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Maui" Version="11.1.0" />
+    <PackageReference Include="ElBruno.VibeVoiceTTS" Version="0.1.*-*" />
     <PackageReference Include="Plugin.Maui.Audio" Version="4.0.0" />
   </ItemGroup>
 

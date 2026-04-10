@@ -27,7 +27,7 @@
                            FontSize="14"
                            VerticalOptions="Center" />
                     <Label x:Name="StatusLabel"
-                           Text="Checking backend..."
+                           Text="Initializing model..."
                            TextColor="#94a3b8"
                            FontSize="14"
                            VerticalOptions="Center" />

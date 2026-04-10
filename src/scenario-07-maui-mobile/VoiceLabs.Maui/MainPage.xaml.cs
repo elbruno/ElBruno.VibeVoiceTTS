@@ -5,13 +5,13 @@ namespace VoiceLabs.Maui;
 
 public partial class MainPage : ContentPage
 {
-    private readonly TtsService _ttsService;
+    private readonly VibeVoiceTtsService _ttsService;
     private readonly IAudioManager _audioManager;
     private IAudioPlayer? _audioPlayer;
     private byte[]? _currentAudio;
-    private List<VoiceInfo> _voices = [];
+    private List<VoiceDisplayItem> _voices = [];
 
-    public MainPage(TtsService ttsService, IAudioManager audioManager)
+    public MainPage(VibeVoiceTtsService ttsService, IAudioManager audioManager)
     {
         InitializeComponent();
         _ttsService = ttsService;
@@ -21,34 +21,39 @@ public partial class MainPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        await CheckBackendHealthAsync();
-        await LoadVoicesAsync();
+        await InitializeModelAsync();
+        LoadVoices();
     }
 
-    private async Task CheckBackendHealthAsync()
+    private async Task InitializeModelAsync()
     {
-        var healthy = await _ttsService.CheckHealthAsync();
-        StatusIndicator.TextColor = healthy ? Colors.LimeGreen : Colors.Red;
-        StatusLabel.Text = healthy ? "Backend connected" : "Backend offline";
-        GenerateButton.IsEnabled = healthy;
-    }
+        StatusIndicator.TextColor = Colors.Orange;
+        StatusLabel.Text = "Downloading model...";
 
-    private async Task LoadVoicesAsync()
-    {
         try
         {
-            _voices = await _ttsService.GetVoicesAsync();
-        }
-        catch
-        {
-            _voices =
-            [
-                new VoiceInfo { Id = "en-US-Aria", Name = "Aria", Language = "en-US" },
-                new VoiceInfo { Id = "en-US-Guy", Name = "Guy", Language = "en-US" },
-                new VoiceInfo { Id = "de-DE-Katja", Name = "Katja", Language = "de-DE" },
-            ];
-        }
+            var progress = new Progress<string>(message =>
+            {
+                MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = message);
+            });
 
+            await _ttsService.InitializeAsync(progress);
+
+            StatusIndicator.TextColor = Colors.LimeGreen;
+            StatusLabel.Text = "Model ready";
+            GenerateButton.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            StatusIndicator.TextColor = Colors.Red;
+            StatusLabel.Text = $"Model init failed: {ex.Message}";
+            GenerateButton.IsEnabled = false;
+        }
+    }
+
+    private void LoadVoices()
+    {
+        _voices = _ttsService.GetVoices();
         VoicePicker.ItemsSource = _voices;
         if (_voices.Count > 0)
             VoicePicker.SelectedIndex = 0;
@@ -74,7 +79,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (VoicePicker.SelectedItem is not VoiceInfo voice)
+        if (VoicePicker.SelectedItem is not VoiceDisplayItem voice)
         {
             await DisplayAlert("Error", "Please select a voice.", "OK");
             return;
@@ -87,7 +92,7 @@ public partial class MainPage : ContentPage
 
         try
         {
-            _currentAudio = await _ttsService.GenerateAudioAsync(text, voice.Id);
+            _currentAudio = await _ttsService.GenerateAudioAsync(text, voice.Name);
 
             if (_currentAudio is { Length: > 0 })
             {
@@ -95,7 +100,7 @@ public partial class MainPage : ContentPage
             }
             else
             {
-                await DisplayAlert("Error", "Failed to generate audio. Check that the backend is running.", "OK");
+                await DisplayAlert("Error", "Failed to generate audio.", "OK");
             }
         }
         catch (Exception ex)

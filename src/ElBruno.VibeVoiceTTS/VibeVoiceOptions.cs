@@ -83,6 +83,11 @@ public sealed class VibeVoiceOptions
             _sampleRate = value;
         }
     }
+    
+    /// <summary>
+    /// Max Text length for speech sythesis.(default: 500), set it to 0 or Int32.MaxValue
+    /// </summary>
+    public int MaxTextLength { get; set; } = 500;
 
     /// <summary>
     /// Random seed for reproducible diffusion noise (default: 42).

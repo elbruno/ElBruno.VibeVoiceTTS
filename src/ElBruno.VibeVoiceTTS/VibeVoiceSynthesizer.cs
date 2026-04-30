@@ -207,9 +207,9 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
     /// Maximum 500 characters to prevent resource exhaustion.
     /// </summary>
     /// <exception cref="ArgumentException">Thrown when text exceeds 500 characters.</exception>
-    internal static void ValidateTextLength(string text)
+    internal void ValidateTextLength(string text)
     {
-        if (_options.MaxTextLength == 0 || text.Length <= MaxTextLength)
+        if (_options.MaxTextLength == 0 || text.Length <= _options.MaxTextLength)
             return;
 
         throw new ArgumentException(

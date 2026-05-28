@@ -292,6 +292,8 @@ cd src/scenario-03-csharp-simple
 dotnet run
 ```
 
+To change the maximum prompt size in the C# samples, set `MaxTextLength` on `VibeVoiceOptions` (default: 500). Set it to `0` if you want to disable the guard.
+
 ### Expected Output
 
 ```

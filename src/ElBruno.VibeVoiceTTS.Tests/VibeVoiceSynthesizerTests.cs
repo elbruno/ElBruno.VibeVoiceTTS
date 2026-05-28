@@ -178,6 +178,30 @@ public class VibeVoiceSynthesizerTests
     }
 
     [Fact]
+    public void ValidateTextLength_UsesConfiguredLimit()
+    {
+        using var tts = new VibeVoiceSynthesizer(new VibeVoiceOptions
+        {
+            MaxTextLength = 10
+        });
+
+        tts.ValidateTextLength("short text");
+        var ex = Assert.Throws<ArgumentException>(() => tts.ValidateTextLength("this text is too long"));
+        Assert.Contains("maximum length of 10", ex.Message);
+    }
+
+    [Fact]
+    public void ValidateTextLength_AllowsDisabledLimit()
+    {
+        using var tts = new VibeVoiceSynthesizer(new VibeVoiceOptions
+        {
+            MaxTextLength = 0
+        });
+
+        tts.ValidateTextLength(new string('a', 5000));
+    }
+
+    [Fact]
     public void GetVoiceFiles_ReturnsExpectedFileCount()
     {
         var files = ModelManager.GetVoiceFiles("en-Carter_man");

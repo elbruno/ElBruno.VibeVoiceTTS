@@ -13,7 +13,17 @@ public class VibeVoiceOptionsTests
         Assert.Equal(20, opts.DiffusionSteps);
         Assert.Equal(1.5f, opts.CfgScale);
         Assert.Equal(24000, opts.SampleRate);
+        Assert.Equal(500, opts.MaxTextLength);
         Assert.Equal(42, opts.Seed);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(int.MaxValue)]
+    public void MaxTextLength_AllowsDisabledValues(int value)
+    {
+        var opts = new VibeVoiceOptions { MaxTextLength = value };
+        Assert.Equal(value, opts.MaxTextLength);
     }
 
     [Fact]

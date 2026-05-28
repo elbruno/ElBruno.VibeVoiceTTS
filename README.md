@@ -98,6 +98,7 @@ var options = new VibeVoiceOptions
     DiffusionSteps = 20,                 // Quality vs speed tradeoff
     CfgScale = 1.5f,                     // Classifier-free guidance scale
     SampleRate = 24000,                  // Output sample rate
+    MaxTextLength = 500,                 // Max characters per request (0 disables the limit)
 };
 
 using var tts = new VibeVoiceSynthesizer(options);
@@ -110,6 +111,7 @@ using var tts = new VibeVoiceSynthesizer(options);
 | `DiffusionSteps` | `20` | Number of diffusion denoising steps |
 | `CfgScale` | `1.5` | Classifier-free guidance scale |
 | `SampleRate` | `24000` | Output audio sample rate (Hz) |
+| `MaxTextLength` | `500` | Maximum characters accepted per request (`0` disables validation) |
 | `Seed` | `42` | Random seed for reproducible output |
 | `ExecutionProvider` | `Cpu` | ONNX Runtime execution provider (`Cpu`, `DirectML`, `Cuda`) |
 | `GpuDeviceId` | `0` | GPU device index (used with DirectML or CUDA) |
@@ -160,6 +162,7 @@ builder.Services.AddVibeVoice(options =>
 ```
 
 > **💡 Tip:** For best results, keep sentences short (~10 words). Longer text may produce artifacts due to model limitations. Consider splitting long text into sentences.
+> **💡 Tip:** The `MaxTextLength` option defaults to 500 characters. Raise it for long passages, or set it to `0` to disable the guard entirely.
 
 ## 🗣️ Voices & Languages
 

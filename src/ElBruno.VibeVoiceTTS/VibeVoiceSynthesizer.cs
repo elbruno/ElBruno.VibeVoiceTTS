@@ -203,10 +203,9 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
     }
 
     /// <summary>
-    /// Validates that text input is within safe length limits.
-    /// Maximum 500 characters to prevent resource exhaustion.
+    /// Validates that text input is within the configured length limit.
     /// </summary>
-    /// <exception cref="ArgumentException">Thrown when text exceeds 500 characters.</exception>
+    /// <exception cref="ArgumentException">Thrown when text exceeds the configured length limit.</exception>
     internal void ValidateTextLength(string text)
     {
         if (_options.MaxTextLength == 0 || text.Length <= _options.MaxTextLength)

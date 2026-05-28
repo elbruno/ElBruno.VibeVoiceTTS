@@ -85,7 +85,8 @@ public sealed class VibeVoiceOptions
     }
     
     /// <summary>
-    /// Max Text length for speech sythesis.(default: 500), set it to 0 or Int32.MaxValue
+    /// Maximum text length for speech synthesis (default: 500).
+    /// Set to 0 or <see cref="int.MaxValue"/> to disable length validation.
     /// </summary>
     public int MaxTextLength { get; set; } = 500;
 

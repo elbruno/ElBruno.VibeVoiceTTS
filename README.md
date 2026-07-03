@@ -161,6 +161,26 @@ builder.Services.AddVibeVoice(options =>
 // Then inject IVibeVoiceSynthesizer in your services
 ```
 
+### 8) Cancellation, metrics, and concurrent use
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+tts.GenerationMetricReported += (_, metric) =>
+{
+    Console.WriteLine($"{metric.Stage}: {metric.Elapsed.TotalMilliseconds:F0} ms ({metric.FramesGenerated} frames)");
+};
+
+float[] audio = await tts.GenerateAudioAsync(
+    "This request can be cancelled while queued or during generation.",
+    "Carter",
+    cts.Token);
+```
+
+> **💡 Concurrency behavior:** A single `VibeVoiceSynthesizer` instance serializes `GenerateAudioAsync()` and `EnsureVoiceAvailableAsync()` calls so the shared ONNX pipeline cannot be mutated mid-request. If a caller is waiting for that capacity, cancelling its `CancellationToken` aborts the wait. Create multiple synthesizer instances if you need true parallel generation.
+>
+> **💡 Metrics behavior:** `GenerationMetricReported` emits `FirstAudioReady` when the first latent audio frame is ready and `Completed` when the final waveform has been decoded.
+
 > **💡 Tip:** For best results, keep sentences short (~10 words). Longer text may produce artifacts due to model limitations. Consider splitting long text into sentences.
 > **💡 Tip:** The `MaxTextLength` option defaults to 500 characters. Raise it for long passages, or set it to `0` to disable the guard entirely.
 

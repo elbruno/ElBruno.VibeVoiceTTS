@@ -9,9 +9,14 @@ namespace ElBruno.VibeVoiceTTS;
 public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
 {
     private readonly VibeVoiceOptions _options;
+    private readonly VibeVoiceRuntimeDependencies _dependencies;
     private readonly SemaphoreSlim _initLock = new(1, 1);
-    private OnnxInferencePipeline? _pipeline;
+    private readonly SemaphoreSlim _generationLock = new(1, 1);
+    private IGenerationPipeline? _pipeline;
     private bool _disposed;
+
+    /// <inheritdoc/>
+    public event EventHandler<GenerationMetric>? GenerationMetricReported;
 
     /// <summary>
     /// Creates a synthesizer with default options (models stored in shared OS cache).
@@ -21,16 +26,21 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
     /// <summary>
     /// Creates a synthesizer with the specified options.
     /// </summary>
-    public VibeVoiceSynthesizer(VibeVoiceOptions options)
+    public VibeVoiceSynthesizer(VibeVoiceOptions options) : this(options, VibeVoiceRuntimeDependencies.Default)
+    {
+    }
+
+    internal VibeVoiceSynthesizer(VibeVoiceOptions options, VibeVoiceRuntimeDependencies dependencies)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _dependencies = dependencies ?? throw new ArgumentNullException(nameof(dependencies));
     }
 
     /// <inheritdoc/>
     public string ModelPath => _options.GetEffectiveModelPath();
 
     /// <inheritdoc/>
-    public bool IsModelAvailable => ModelManager.IsModelAvailable(ModelPath);
+    public bool IsModelAvailable => _dependencies.IsModelAvailable(ModelPath);
 
     /// <inheritdoc/>
     public async Task EnsureModelAvailableAsync(
@@ -50,7 +60,7 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
             return;
         }
 
-        await ModelManager.EnsureModelAvailableAsync(
+        await _dependencies.EnsureModelAvailableAsync(
             ModelPath,
             _options.HuggingFaceRepo,
             progress,
@@ -73,28 +83,41 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
         string voiceName,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
-        ArgumentException.ThrowIfNullOrWhiteSpace(voiceName);
-        ValidateTextLength(text);
-
-        // Resolve short preset names (e.g. "Carter") to internal names (e.g. "en-Carter_man")
-        var resolvedName = ResolveVoiceName(voiceName);
-
-        // Auto-download voice if not available on disk
-        if (!ModelManager.IsVoiceAvailable(ModelPath, resolvedName))
+        cancellationToken.ThrowIfCancellationRequested();
+        await _generationLock.WaitAsync(cancellationToken);
+        try
         {
-            await ModelManager.EnsureVoiceAvailableAsync(
-                ModelPath, _options.HuggingFaceRepo, resolvedName, null, cancellationToken);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentException.ThrowIfNullOrWhiteSpace(text);
+            ArgumentException.ThrowIfNullOrWhiteSpace(voiceName);
+            ValidateTextLength(text);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            // Reload pipeline to pick up newly downloaded voice
-            await ReloadPipelineAsync();
+            // Resolve short preset names (e.g. "Carter") to internal names (e.g. "en-Carter_man")
+            var resolvedName = ResolveVoiceName(voiceName);
+
+            // Auto-download voice if not available on disk
+            if (!_dependencies.IsVoiceAvailable(ModelPath, resolvedName))
+            {
+                await _dependencies.EnsureVoiceAvailableAsync(
+                    ModelPath, _options.HuggingFaceRepo, resolvedName, null, cancellationToken);
+
+                // Reload pipeline to pick up newly downloaded voice
+                await ReloadPipelineAsync();
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var pipeline = await GetOrCreatePipelineAsync(cancellationToken);
+
+            // Run inference on a thread pool thread to avoid blocking
+            return await Task.Run(
+                () => pipeline.GenerateAudio(text, resolvedName, cancellationToken, ReportGenerationMetric),
+                cancellationToken);
         }
-
-        var pipeline = await GetOrCreatePipelineAsync();
-
-        // Run inference on a thread pool thread to avoid blocking
-        return await Task.Run(() => pipeline.GenerateAudio(text, resolvedName), cancellationToken);
+        finally
+        {
+            _generationLock.Release();
+        }
     }
 
     /// <inheritdoc/>
@@ -121,7 +144,7 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
 
         // No pipeline loaded — check disk for downloaded voices
         return Enum.GetValues<VibeVoicePreset>()
-            .Where(p => ModelManager.IsVoiceAvailable(ModelPath, p.ToVoiceName()))
+            .Where(p => _dependencies.IsVoiceAvailable(ModelPath, p.ToVoiceName()))
             .Select(p => p.ToString())
             .ToArray();
     }
@@ -151,7 +174,7 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
 
         // No pipeline loaded — check disk for downloaded voices
         return Enum.GetValues<VibeVoicePreset>()
-            .Where(p => ModelManager.IsVoiceAvailable(ModelPath, p.ToVoiceName()))
+            .Where(p => _dependencies.IsVoiceAvailable(ModelPath, p.ToVoiceName()))
             .Select(p => p.ToVoiceInfo())
             .ToArray();
     }
@@ -176,16 +199,25 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
         IProgress<DownloadProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentException.ThrowIfNullOrWhiteSpace(voiceName);
+        cancellationToken.ThrowIfCancellationRequested();
+        await _generationLock.WaitAsync(cancellationToken);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentException.ThrowIfNullOrWhiteSpace(voiceName);
 
-        var resolvedName = ResolveVoiceName(voiceName);
+            var resolvedName = ResolveVoiceName(voiceName);
 
-        await ModelManager.EnsureVoiceAvailableAsync(
-            ModelPath, _options.HuggingFaceRepo, resolvedName, progress, cancellationToken);
+            await _dependencies.EnsureVoiceAvailableAsync(
+                ModelPath, _options.HuggingFaceRepo, resolvedName, progress, cancellationToken);
 
-        // Reload pipeline to pick up newly downloaded voice
-        await ReloadPipelineAsync();
+            // Reload pipeline to pick up newly downloaded voice
+            await ReloadPipelineAsync();
+        }
+        finally
+        {
+            _generationLock.Release();
+        }
     }
 
     /// <summary>
@@ -226,12 +258,12 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
             throw new ArgumentException($"Invalid voice preset value: {voice}", nameof(voice));
     }
 
-    private async Task<OnnxInferencePipeline> GetOrCreatePipelineAsync()
+    private async Task<IGenerationPipeline> GetOrCreatePipelineAsync(CancellationToken cancellationToken)
     {
         if (_pipeline is not null)
             return _pipeline;
 
-        await _initLock.WaitAsync();
+        await _initLock.WaitAsync(cancellationToken);
         try
         {
             if (_pipeline is not null)
@@ -241,13 +273,7 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
                 throw new InvalidOperationException(
                     $"Model files not found at '{ModelPath}'. Call EnsureModelAvailableAsync() first or provide a valid model path.");
 
-            _pipeline = new OnnxInferencePipeline(
-                ModelPath,
-                _options.DiffusionSteps,
-                _options.CfgScale,
-                _options.Seed,
-                _options.ExecutionProvider,
-                _options.GpuDeviceId);
+            _pipeline = _dependencies.CreatePipeline(ModelPath, _options);
 
             return _pipeline;
         }
@@ -278,5 +304,11 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
         _disposed = true;
         _pipeline?.Dispose();
         _initLock.Dispose();
+        _generationLock.Dispose();
+    }
+
+    private void ReportGenerationMetric(GenerationMetric metric)
+    {
+        GenerationMetricReported?.Invoke(this, metric);
     }
 }

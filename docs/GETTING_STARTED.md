@@ -2,6 +2,8 @@
 
 This guide walks you through setting up and running VibeVoiceTTS.
 
+> **C# library runtime behavior:** Each `VibeVoiceSynthesizer` instance processes one generation request at a time so its shared ONNX pipeline stays consistent. Pass a `CancellationToken` to cancel queued or in-flight generation, and subscribe to `GenerationMetricReported` if you want first-audio and total-duration timings.
+
 ## Prerequisites
 
 ### Required Software

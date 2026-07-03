@@ -17,6 +17,7 @@ A .NET library for text-to-speech synthesis using Microsoft's [VibeVoice-Realtim
 - 🤖 **Pure C# Inference** — ONNX Runtime, zero Python dependency at runtime
 - 🚀 **GPU Acceleration** — DirectML (any Windows GPU) and CUDA (NVIDIA) support with automatic CPU fallback
 - 📥 **Auto-Download** — Models automatically downloaded from 🤗 HuggingFace on first use
+- 📡 **Streaming Chunks API** — ordered PCM chunk delivery through `GenerateAudioStreamingAsync()`
 - 🌍 **6 Voice Presets** — Carter, Davis, Emma, Frank, Grace, Mike (English voices with multilingual experimental support)
 - 💉 **Dependency Injection** — First-class `IServiceCollection` integration
 - 🖥️ **Cross-Platform** — Windows, Linux, macOS, MAUI-ready
@@ -104,6 +105,23 @@ var options = new VibeVoiceOptions
 using var tts = new VibeVoiceSynthesizer(options);
 ```
 
+### 6) Stream ordered PCM chunks
+
+```csharp
+await foreach (var chunk in tts.GenerateAudioStreamingAsync(
+    "Streaming-ready chunk delivery without a second full-audio copy.",
+    VibeVoicePreset.Carter))
+{
+    Console.WriteLine(
+        $"Chunk #{chunk.SequenceNumber} | Samples: {chunk.Samples.Length} | Final: {chunk.IsFinal}");
+}
+
+Console.WriteLine(tts.StreamingCapabilities);
+// -> { SupportsProgressiveGeneration = false, SupportsChunkedDelivery = true }
+```
+
+> **💡 Streaming behavior:** The current ONNX pipeline finishes waveform generation before chunk emission starts, so `SupportsProgressiveGeneration` is `false`. Chunks are then exposed in-order from the generated PCM buffer, so `SupportsChunkedDelivery` is `true`.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `ModelPath` | OS cache* | Directory where ONNX models are stored and downloaded |
@@ -118,7 +136,7 @@ using var tts = new VibeVoiceSynthesizer(options);
 
 *\*Default model cache: Windows: `%LOCALAPPDATA%\ElBruno\VibeVoice\models` · Linux/macOS: `~/.local/share/elbruno/vibevoice/models`*
 
-### 6) GPU Acceleration
+### 7) GPU Acceleration
 
 Enable GPU acceleration by setting the execution provider and installing the corresponding NuGet package:
 
@@ -150,7 +168,7 @@ using var tts = new VibeVoiceSynthesizer(options);
 
 > **💡 Note:** If the selected GPU provider is unavailable (missing NuGet package or no compatible GPU), the library automatically falls back to CPU inference. When using DirectML, models with dynamic tensor shapes (LM models, acoustic decoder) run on CPU while fixed-shape models (prediction head, connector, EOS classifier) use GPU — this works around known DirectML limitations with dynamic Reshape and ConvTranspose operations.
 
-### 7) Dependency Injection
+### 8) Dependency Injection
 
 ```csharp
 builder.Services.AddVibeVoice(options =>
@@ -161,7 +179,7 @@ builder.Services.AddVibeVoice(options =>
 // Then inject IVibeVoiceSynthesizer in your services
 ```
 
-### 8) Cancellation, metrics, and concurrent use
+### 9) Cancellation, metrics, streaming, and concurrent use
 
 ```csharp
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -180,6 +198,8 @@ float[] audio = await tts.GenerateAudioAsync(
 > **💡 Concurrency behavior:** A single `VibeVoiceSynthesizer` instance serializes `GenerateAudioAsync()` and `EnsureVoiceAvailableAsync()` calls so the shared ONNX pipeline cannot be mutated mid-request. If a caller is waiting for that capacity, cancelling its `CancellationToken` aborts the wait. Create multiple synthesizer instances if you need true parallel generation.
 >
 > **💡 Metrics behavior:** `GenerationMetricReported` emits `FirstAudioReady` when the first latent audio frame is ready and `Completed` when the final waveform has been decoded.
+>
+> **💡 Streaming behavior:** `GenerateAudioStreamingAsync()` uses the same cancellation rules. If cancellation happens while enumerating chunks, no further audio chunks are emitted and exactly one yielded chunk is marked `IsFinal = true`.
 
 > **💡 Tip:** For best results, keep sentences short (~10 words). Longer text may produce artifacts due to model limitations. Consider splitting long text into sentences.
 > **💡 Tip:** The `MaxTextLength` option defaults to 500 characters. Raise it for long passages, or set it to `0` to disable the guard entirely.

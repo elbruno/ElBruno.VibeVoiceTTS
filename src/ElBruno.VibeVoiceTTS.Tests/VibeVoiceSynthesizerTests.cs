@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using ElBruno.VibeVoiceTTS.Pipeline;
 using ElBruno.VibeVoiceTTS;
 
@@ -314,6 +315,83 @@ public class VibeVoiceSynthesizerTests
     }
 
     [Fact]
+    public void StreamingCapabilities_ReportChunkedButNotProgressive()
+    {
+        using var tts = new VibeVoiceSynthesizer();
+
+        Assert.False(tts.StreamingCapabilities.SupportsProgressiveGeneration);
+        Assert.True(tts.StreamingCapabilities.SupportsChunkedDelivery);
+    }
+
+    [Fact]
+    public async Task GenerateAudioStreamingAsync_ReturnsOrderedChunksWithoutFullCopy()
+    {
+        float[] audio =
+            Enumerable.Range(0, (VibeVoiceSynthesizer.DefaultStreamingChunkSizeSamples * 2) + 123)
+                .Select(i => i / 100f)
+                .ToArray();
+        using var tts = CreateTestSynthesizer(new BufferedPipeline(audio));
+        var chunks = new List<VibeVoiceAudioChunk>();
+
+        await foreach (var chunk in tts.GenerateAudioStreamingAsync("hello", "Carter"))
+        {
+            chunks.Add(chunk);
+        }
+
+        Assert.Equal(3, chunks.Count);
+        Assert.Equal([0L, 1L, 2L], chunks.Select(chunk => chunk.SequenceNumber).ToArray());
+        Assert.Equal([false, false, true], chunks.Select(chunk => chunk.IsFinal).ToArray());
+        Assert.All(chunks, chunk => Assert.Equal(24_000, chunk.SampleRate));
+
+        float[] rebuilt = chunks.SelectMany(chunk => chunk.Samples.ToArray()).ToArray();
+        Assert.Equal(audio, rebuilt);
+
+        Assert.True(MemoryMarshal.TryGetArray(chunks[0].Samples, out var firstSegment));
+        Assert.True(MemoryMarshal.TryGetArray(chunks[1].Samples, out var secondSegment));
+        Assert.True(MemoryMarshal.TryGetArray(chunks[2].Samples, out var finalSegment));
+        Assert.Same(audio, firstSegment.Array);
+        Assert.Same(audio, secondSegment.Array);
+        Assert.Same(audio, finalSegment.Array);
+    }
+
+    [Fact]
+    public async Task GenerateAudioStreamingAsync_EmptyAudio_EmitsSingleFinalChunk()
+    {
+        using var tts = CreateTestSynthesizer(new BufferedPipeline([]));
+        var chunks = new List<VibeVoiceAudioChunk>();
+
+        await foreach (var chunk in tts.GenerateAudioStreamingAsync("hello", "Carter"))
+        {
+            chunks.Add(chunk);
+        }
+
+        var single = Assert.Single(chunks);
+        Assert.True(single.IsFinal);
+        Assert.Equal(0L, single.SequenceNumber);
+        Assert.True(single.Samples.IsEmpty);
+    }
+
+    [Fact]
+    public async Task GenerateAudioStreamingAsync_CancellationStopsFurtherAudio()
+    {
+        float[] audio =
+            Enumerable.Range(0, VibeVoiceSynthesizer.DefaultStreamingChunkSizeSamples * 2)
+                .Select(i => (float)i)
+                .ToArray();
+        using var tts = CreateTestSynthesizer(new BufferedPipeline(audio));
+        using var cts = new CancellationTokenSource();
+        await using var enumerator = tts.GenerateAudioStreamingAsync("hello", "Carter", cts.Token)
+            .GetAsyncEnumerator();
+
+        Assert.True(await enumerator.MoveNextAsync());
+        Assert.False(enumerator.Current.IsFinal);
+
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await enumerator.MoveNextAsync());
+    }
+
+    [Fact]
     public async Task GenerateAudioAsync_StressSwitchesVoicesWithoutCrossRequestLeakage()
     {
         var pipeline = new TrackingPipeline();
@@ -392,6 +470,20 @@ public class VibeVoiceSynthesizerTests
                 FramesGenerated = 2
             });
             return [1f];
+        }
+
+        public string[] GetAvailableVoices() => ["en-Carter_man"];
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class BufferedPipeline(float[] audio) : IGenerationPipeline
+    {
+        public float[] GenerateAudio(string text, string voice, CancellationToken cancellationToken, Action<GenerationMetric>? reportMetric = null)
+        {
+            return audio;
         }
 
         public string[] GetAvailableVoices() => ["en-Carter_man"];

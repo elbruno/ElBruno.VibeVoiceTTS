@@ -1,4 +1,5 @@
 using ElBruno.VibeVoiceTTS.Pipeline;
+using System.Runtime.CompilerServices;
 
 namespace ElBruno.VibeVoiceTTS;
 
@@ -8,6 +9,7 @@ namespace ElBruno.VibeVoiceTTS;
 /// </summary>
 public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
 {
+    internal const int DefaultStreamingChunkSizeSamples = 6_000;
     private readonly VibeVoiceOptions _options;
     private readonly VibeVoiceRuntimeDependencies _dependencies;
     private readonly SemaphoreSlim _initLock = new(1, 1);
@@ -17,6 +19,11 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
 
     /// <inheritdoc/>
     public event EventHandler<GenerationMetric>? GenerationMetricReported;
+
+    /// <inheritdoc/>
+    public VibeVoiceStreamingCapabilities StreamingCapabilities { get; } = new(
+        SupportsProgressiveGeneration: false,
+        SupportsChunkedDelivery: true);
 
     /// <summary>
     /// Creates a synthesizer with default options (models stored in shared OS cache).
@@ -117,6 +124,29 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
         finally
         {
             _generationLock.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public IAsyncEnumerable<VibeVoiceAudioChunk> GenerateAudioStreamingAsync(
+        string text,
+        VibeVoicePreset voice,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateVoicePreset(voice);
+        return GenerateAudioStreamingAsync(text, voice.ToVoiceName(), cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async IAsyncEnumerable<VibeVoiceAudioChunk> GenerateAudioStreamingAsync(
+        string text,
+        string voiceName,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        float[] audio = await GenerateAudioAsync(text, voiceName, cancellationToken).ConfigureAwait(false);
+        foreach (var chunk in CreateStreamingChunks(audio, _options.SampleRate, cancellationToken))
+        {
+            yield return chunk;
         }
     }
 
@@ -256,6 +286,38 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
     {
         if (!Enum.IsDefined(typeof(VibeVoicePreset), voice))
             throw new ArgumentException($"Invalid voice preset value: {voice}", nameof(voice));
+    }
+
+    internal static IEnumerable<VibeVoiceAudioChunk> CreateStreamingChunks(
+        float[] audioSamples,
+        int sampleRate,
+        CancellationToken cancellationToken,
+        int chunkSizeSamples = DefaultStreamingChunkSizeSamples)
+    {
+        ArgumentNullException.ThrowIfNull(audioSamples);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chunkSizeSamples);
+
+        if (audioSamples.Length == 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return new VibeVoiceAudioChunk(ReadOnlyMemory<float>.Empty, sampleRate, 0, true);
+            yield break;
+        }
+
+        long sequenceNumber = 0;
+        for (int offset = 0; offset < audioSamples.Length; offset += chunkSizeSamples)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            int length = Math.Min(chunkSizeSamples, audioSamples.Length - offset);
+            bool isFinal = offset + length >= audioSamples.Length;
+
+            yield return new VibeVoiceAudioChunk(
+                audioSamples.AsMemory(offset, length),
+                sampleRate,
+                sequenceNumber++,
+                isFinal);
+        }
     }
 
     private async Task<IGenerationPipeline> GetOrCreatePipelineAsync(CancellationToken cancellationToken)

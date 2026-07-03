@@ -26,6 +26,16 @@ public interface IVibeVoiceSynthesizer : IDisposable
     string ModelPath { get; }
 
     /// <summary>
+    /// Gets the configured audio sample rate in Hz.
+    /// </summary>
+    int SampleRate { get; }
+
+    /// <summary>
+    /// Gets the HuggingFace repository used to resolve model assets.
+    /// </summary>
+    string HuggingFaceRepo { get; }
+
+    /// <summary>
     /// Ensures model files are available, downloading from HuggingFace if needed.
     /// </summary>
     Task EnsureModelAvailableAsync(

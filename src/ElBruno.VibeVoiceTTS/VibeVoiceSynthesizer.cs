@@ -50,6 +50,12 @@ public sealed class VibeVoiceSynthesizer : IVibeVoiceSynthesizer
     public bool IsModelAvailable => _dependencies.IsModelAvailable(ModelPath);
 
     /// <inheritdoc/>
+    public int SampleRate => _options.SampleRate;
+
+    /// <inheritdoc/>
+    public string HuggingFaceRepo => _options.HuggingFaceRepo;
+
+    /// <inheritdoc/>
     public async Task EnsureModelAvailableAsync(
         IProgress<DownloadProgress>? progress = null,
         CancellationToken cancellationToken = default)

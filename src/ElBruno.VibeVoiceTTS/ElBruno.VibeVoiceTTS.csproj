@@ -5,13 +5,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>ElBruno.VibeVoiceTTS</RootNamespace>
+    <NoWarn>$(NoWarn);MEAI001</NoWarn>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
 
     <!-- NuGet Package Metadata -->
     <PackageId>ElBruno.VibeVoiceTTS</PackageId>
-    <Version>0.6.0</Version>
+    <Version>0.7.0</Version>
     <Authors>Bruno Capuano</Authors>
     <Description>A .NET library for VibeVoice text-to-speech using ONNX Runtime. Supports automatic model download from HuggingFace, voice presets, and native C# inference with no Python dependency.</Description>
-    <PackageTags>tts;text-to-speech;vibevoice;onnx;onnxruntime;speech;audio;ai;ml</PackageTags>
+    <PackageTags>tts;text-to-speech;vibevoice;onnx;onnxruntime;speech;audio;ai;ml;microsoft-extensions-ai</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/elbruno/ElBruno.VibeVoiceTTS</PackageProjectUrl>
     <RepositoryUrl>https://github.com/elbruno/ElBruno.VibeVoiceTTS</RepositoryUrl>
@@ -28,7 +31,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.*" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.*" />
     <PackageReference Include="ElBruno.HuggingFace.Downloader" Version="0.5.0" />
   </ItemGroup>
 

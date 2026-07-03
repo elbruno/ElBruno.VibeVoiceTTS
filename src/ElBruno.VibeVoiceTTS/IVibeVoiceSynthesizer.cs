@@ -11,6 +11,11 @@ public interface IVibeVoiceSynthesizer : IDisposable
     event EventHandler<GenerationMetric>? GenerationMetricReported;
 
     /// <summary>
+    /// Gets the streaming behavior supported by this synthesizer implementation.
+    /// </summary>
+    VibeVoiceStreamingCapabilities StreamingCapabilities { get; }
+
+    /// <summary>
     /// Gets whether all required ONNX model files are present at the configured model path.
     /// </summary>
     bool IsModelAvailable { get; }
@@ -44,6 +49,26 @@ public interface IVibeVoiceSynthesizer : IDisposable
     /// If the synthesizer is already busy, waiting for capacity honors the supplied cancellation token.
     /// </summary>
     Task<float[]> GenerateAudioAsync(
+        string text,
+        string voiceName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Generates ordered PCM chunks using the specified voice preset.
+    /// Current ONNX inference completes waveform generation before chunk emission, so
+    /// SupportsProgressiveGeneration is false while SupportsChunkedDelivery is true.
+    /// </summary>
+    IAsyncEnumerable<VibeVoiceAudioChunk> GenerateAudioStreamingAsync(
+        string text,
+        VibeVoicePreset voice,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Generates ordered PCM chunks using a voice name string.
+    /// Current ONNX inference completes waveform generation before chunk emission, so
+    /// SupportsProgressiveGeneration is false while SupportsChunkedDelivery is true.
+    /// </summary>
+    IAsyncEnumerable<VibeVoiceAudioChunk> GenerateAudioStreamingAsync(
         string text,
         string voiceName,
         CancellationToken cancellationToken = default);

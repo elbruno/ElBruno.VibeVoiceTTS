@@ -6,6 +6,11 @@ namespace ElBruno.VibeVoiceTTS;
 public interface IVibeVoiceSynthesizer : IDisposable
 {
     /// <summary>
+    /// Raised when generation reaches the first-audio and completion checkpoints.
+    /// </summary>
+    event EventHandler<GenerationMetric>? GenerationMetricReported;
+
+    /// <summary>
     /// Gets whether all required ONNX model files are present at the configured model path.
     /// </summary>
     bool IsModelAvailable { get; }
@@ -24,6 +29,8 @@ public interface IVibeVoiceSynthesizer : IDisposable
 
     /// <summary>
     /// Generates audio samples from text using the specified voice preset.
+    /// A single synthesizer instance serializes generation requests to protect the shared ONNX pipeline.
+    /// If the synthesizer is already busy, waiting for capacity honors the supplied cancellation token.
     /// </summary>
     /// <returns>Float array of audio samples at 24kHz, normalized to [-1, 1].</returns>
     Task<float[]> GenerateAudioAsync(
@@ -33,6 +40,8 @@ public interface IVibeVoiceSynthesizer : IDisposable
 
     /// <summary>
     /// Generates audio samples from text using a voice name string.
+    /// A single synthesizer instance serializes generation requests to protect the shared ONNX pipeline.
+    /// If the synthesizer is already busy, waiting for capacity honors the supplied cancellation token.
     /// </summary>
     Task<float[]> GenerateAudioAsync(
         string text,
@@ -70,6 +79,7 @@ public interface IVibeVoiceSynthesizer : IDisposable
     /// <summary>
     /// Downloads a specific voice preset if not already available.
     /// Accepts both short names ("Davis") and internal names ("en-Davis_man").
+    /// This operation is serialized with generation so the shared pipeline cannot be reloaded mid-request.
     /// </summary>
     Task EnsureVoiceAvailableAsync(
         string voiceName,

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 
@@ -9,7 +10,7 @@ namespace ElBruno.VibeVoiceTTS.Pipeline;
 ///       autoregressive loop: diffusion → acoustic_connector → TTS-LM step → EOS check →
 ///       batch acoustic decode → audio
 /// </summary>
-internal sealed class OnnxInferencePipeline : IDisposable
+internal sealed class OnnxInferencePipeline : IGenerationPipeline
 {
     private readonly InferenceSession _lmWithKv;
     private readonly InferenceSession _ttsLmPrefill;
@@ -106,10 +107,16 @@ internal sealed class OnnxInferencePipeline : IDisposable
         }
     }
 
-    public float[] GenerateAudio(string text, string voice)
+    public float[] GenerateAudio(
+        string text,
+        string voice,
+        CancellationToken cancellationToken,
+        Action<GenerationMetric>? reportMetric = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        cancellationToken.ThrowIfCancellationRequested();
+        var stopwatch = Stopwatch.StartNew();
 
         // Load voice preset KV-cache
         var preset = _voicePresets.GetVoicePreset(voice);
@@ -119,9 +126,10 @@ internal sealed class OnnxInferencePipeline : IDisposable
         // Tokenize
         int[] tokenIds = _tokenizer.Encode(text);
         int textLen = tokenIds.Length;
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Step 1: Language model with KV-cache
-        float[] lmHidden = RunLmWithKv(tokenIds, preset, lmPromptLen);
+        float[] lmHidden = RunLmWithKv(tokenIds, preset, lmPromptLen, cancellationToken);
 
         // Step 2: Add text type embedding and run TTS-LM prefill
         float[] textTypeEmbed = GetTypeEmbedding(1); // text = type 1
@@ -132,14 +140,16 @@ internal sealed class OnnxInferencePipeline : IDisposable
         var (posHidden, posKeys, posValues) = RunTtsLmPrefill(
             ttsInput, textLen, ttsPromptLen,
             StackKvArrays(preset, "tts_kv_key_", NumTtsLayers),
-            StackKvArrays(preset, "tts_kv_value_", NumTtsLayers));
+            StackKvArrays(preset, "tts_kv_value_", NumTtsLayers),
+            cancellationToken);
 
         // Negative path: prefill with negative voice preset KV-cache
         int negPromptLen = GetKvSeqLen(preset, "neg_tts_kv_key_0");
         var (negHidden, negKeys, negValues) = RunTtsLmPrefill(
             ttsInput, textLen, negPromptLen,
             StackKvArrays(preset, "neg_tts_kv_key_", NumTtsLayers),
-            StackKvArrays(preset, "neg_tts_kv_value_", NumTtsLayers));
+            StackKvArrays(preset, "neg_tts_kv_value_", NumTtsLayers),
+            cancellationToken);
 
         // Step 3: Autoregressive speech generation
         var allLatents = new List<float[]>();
@@ -148,6 +158,8 @@ internal sealed class OnnxInferencePipeline : IDisposable
 
         for (int frame = 0; frame < MaxFrames; frame++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Extract condition from last hidden state
             float[] posCond = ExtractLastHidden(posHidden, textLen > 0 && frame == 0 ? textLen : 1);
             float[] negCond = ExtractLastHidden(negHidden, textLen > 0 && frame == 0 ? textLen : 1);
@@ -155,16 +167,27 @@ internal sealed class OnnxInferencePipeline : IDisposable
             // EOS check (skip frame 0)
             if (frame > 0)
             {
-                float eosProb = RunEosClassifier(posCond);
+                float eosProb = RunEosClassifier(posCond, cancellationToken);
                 if (eosProb > 0.5f) break;
             }
 
             // Diffusion with CFG
-            float[] latent = RunDiffusion(posCond, negCond, frame);
+            float[] latent = RunDiffusion(posCond, negCond, frame, cancellationToken);
             allLatents.Add(latent);
 
+            if (allLatents.Count == 1)
+            {
+                reportMetric?.Invoke(new GenerationMetric
+                {
+                    Stage = GenerationMetricStage.FirstAudioReady,
+                    VoiceName = voice,
+                    Elapsed = stopwatch.Elapsed,
+                    FramesGenerated = allLatents.Count
+                });
+            }
+
             // Feedback: acoustic_connector → type embedding → TTS-LM step
-            float[] acEmbed = RunAcousticConnector(latent);
+            float[] acEmbed = RunAcousticConnector(latent, cancellationToken);
             float[] speechEmbed = new float[HiddenSize];
             for (int i = 0; i < HiddenSize; i++)
                 speechEmbed[i] = acEmbed[i] + speechTypeEmbed[i];
@@ -172,25 +195,39 @@ internal sealed class OnnxInferencePipeline : IDisposable
             // Update positive path
             posTotalLen++;
             (posHidden, posKeys, posValues) = RunTtsLmStep(
-                speechEmbed, posTotalLen, posKeys, posValues);
+                speechEmbed, posTotalLen, posKeys, posValues, cancellationToken);
 
             // Update negative path
             negTotalLen++;
             (negHidden, negKeys, negValues) = RunTtsLmStep(
-                speechEmbed, negTotalLen, negKeys, negValues);
+                speechEmbed, negTotalLen, negKeys, negValues, cancellationToken);
 
             // After first frame, textLen is consumed
             textLen = 0;
         }
 
         // Decode all latents
-        return DecodeLatents(allLatents);
+        cancellationToken.ThrowIfCancellationRequested();
+        float[] audio = DecodeLatents(allLatents, cancellationToken);
+        reportMetric?.Invoke(new GenerationMetric
+        {
+            Stage = GenerationMetricStage.Completed,
+            VoiceName = voice,
+            Elapsed = stopwatch.Elapsed,
+            FramesGenerated = allLatents.Count
+        });
+        return audio;
     }
 
     public string[] GetAvailableVoices() => _voicePresets.GetAvailableVoices();
 
-    private float[] RunLmWithKv(int[] tokenIds, Dictionary<string, float[]> preset, int lmPromptLen)
+    private float[] RunLmWithKv(
+        int[] tokenIds,
+        Dictionary<string, float[]> preset,
+        int lmPromptLen,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int textLen = tokenIds.Length;
         int totalLen = lmPromptLen + textLen;
 
@@ -215,15 +252,19 @@ internal sealed class OnnxInferencePipeline : IDisposable
                 CreateKvTensor(pastValues, NumLmLayers, lmPromptLen)),
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var results = _lmWithKv.Run(inputs);
         var resultList = results.ToList();
+        cancellationToken.ThrowIfCancellationRequested();
         return resultList[0].AsTensor<float>().ToArray(); // [1, textLen, 896]
     }
 
     private (float[] hidden, float[] keys, float[] values) RunTtsLmPrefill(
         float[] inputEmbeds, int seqLen, int promptLen,
-        float[] pastKeys, float[] pastValues)
+        float[] pastKeys, float[] pastValues,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int totalLen = promptLen + seqLen;
         var mask = new long[totalLen];
         Array.Fill(mask, 1L);
@@ -245,8 +286,10 @@ internal sealed class OnnxInferencePipeline : IDisposable
                 CreateKvTensor(pastValues, NumTtsLayers, promptLen)),
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var results = _ttsLmPrefill.Run(inputs);
         var resultList = results.ToList();
+        cancellationToken.ThrowIfCancellationRequested();
         var hidden = resultList[0].AsTensor<float>().ToArray();
         var newKeys = resultList[1].AsTensor<float>().ToArray();
         var newValues = resultList[2].AsTensor<float>().ToArray();
@@ -254,8 +297,9 @@ internal sealed class OnnxInferencePipeline : IDisposable
     }
 
     private (float[] hidden, float[] keys, float[] values) RunTtsLmStep(
-        float[] embedVec, int totalLen, float[] pastKeys, float[] pastValues)
+        float[] embedVec, int totalLen, float[] pastKeys, float[] pastValues, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int pastSeqLen = totalLen - 1;
         var mask = new long[totalLen];
         Array.Fill(mask, 1L);
@@ -277,16 +321,19 @@ internal sealed class OnnxInferencePipeline : IDisposable
                 CreateKvTensorFromFlat(pastValues, NumTtsLayers, pastSeqLen)),
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var results = _ttsLmStep.Run(inputs);
         var resultList = results.ToList();
+        cancellationToken.ThrowIfCancellationRequested();
         var hidden = resultList[0].AsTensor<float>().ToArray();
         var newKeys = resultList[1].AsTensor<float>().ToArray();
         var newValues = resultList[2].AsTensor<float>().ToArray();
         return (hidden, newKeys, newValues);
     }
 
-    private float[] RunDiffusion(float[] posCond, float[] negCond, int frame)
+    private float[] RunDiffusion(float[] posCond, float[] negCond, int frame, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var scheduler = new DiffusionScheduler(DiffusionSteps);
         int[] timesteps = scheduler.GetTimesteps();
 
@@ -296,9 +343,11 @@ internal sealed class OnnxInferencePipeline : IDisposable
 
         for (int i = 0; i < timesteps.Length; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Run prediction head for both positive and negative conditions
-            float[] condPred = RunPredictionHead(speech, posCond, timesteps[i]);
-            float[] uncondPred = RunPredictionHead(speech, negCond, timesteps[i]);
+            float[] condPred = RunPredictionHead(speech, posCond, timesteps[i], cancellationToken);
+            float[] uncondPred = RunPredictionHead(speech, negCond, timesteps[i], cancellationToken);
 
             // CFG: uncond + scale * (cond - uncond)
             float[] guidedPred = new float[LatentDim];
@@ -311,8 +360,9 @@ internal sealed class OnnxInferencePipeline : IDisposable
         return speech;
     }
 
-    private float[] RunPredictionHead(float[] latent, float[] condition, int timestep)
+    private float[] RunPredictionHead(float[] latent, float[] condition, int timestep, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var inputs = new List<NamedOnnxValue>
         {
             NamedOnnxValue.CreateFromTensor("noisy_latent",
@@ -323,43 +373,50 @@ internal sealed class OnnxInferencePipeline : IDisposable
                 Utils.TensorHelpers.CreateTensor(condition, [1, HiddenSize])),
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var results = _predictionHead.Run(inputs);
         return results.First().AsTensor<float>().ToArray();
     }
 
-    private float[] RunAcousticConnector(float[] latent)
+    private float[] RunAcousticConnector(float[] latent, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var inputs = new List<NamedOnnxValue>
         {
             NamedOnnxValue.CreateFromTensor("speech_latent",
                 Utils.TensorHelpers.CreateTensor(latent, [1, LatentDim])),
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var results = _acousticConnector.Run(inputs);
         return results.First().AsTensor<float>().ToArray();
     }
 
-    private float RunEosClassifier(float[] hiddenState)
+    private float RunEosClassifier(float[] hiddenState, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var inputs = new List<NamedOnnxValue>
         {
             NamedOnnxValue.CreateFromTensor("hidden_state",
                 Utils.TensorHelpers.CreateTensor(hiddenState, [1, HiddenSize])),
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var results = _eosClassifier.Run(inputs);
         float logit = results.First().AsTensor<float>().ToArray()[0];
         return 1.0f / (1.0f + MathF.Exp(-logit)); // sigmoid
     }
 
-    private float[] DecodeLatents(List<float[]> allLatents)
+    private float[] DecodeLatents(List<float[]> allLatents, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int numFrames = allLatents.Count;
         // Scale latents: (latent - bias) / scaling
         // Layout for decoder: [1, 64, numFrames] (transposed)
         float[] scaled = new float[LatentDim * numFrames];
         for (int f = 0; f < numFrames; f++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int d = 0; d < LatentDim; d++)
             {
                 float val = (allLatents[f][d] - SpeechBiasFactor) / SpeechScalingFactor;
@@ -373,11 +430,16 @@ internal sealed class OnnxInferencePipeline : IDisposable
                 Utils.TensorHelpers.CreateTensor(scaled, [1, LatentDim, numFrames])),
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
         using var results = _acousticDecoder.Run(inputs);
         float[] audio = results.First().AsTensor<float>().ToArray();
 
         for (int i = 0; i < audio.Length; i++)
+        {
             audio[i] = Math.Clamp(audio[i], -1.0f, 1.0f);
+            if ((i & 1023) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
+        }
 
         return audio;
     }

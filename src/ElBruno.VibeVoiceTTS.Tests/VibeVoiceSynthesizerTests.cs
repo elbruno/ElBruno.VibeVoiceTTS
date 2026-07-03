@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using ElBruno.VibeVoiceTTS.Pipeline;
 using ElBruno.VibeVoiceTTS;
 
 namespace ElBruno.VibeVoiceTTS.Tests;
@@ -269,5 +271,173 @@ public class VibeVoiceSynthesizerTests
         Assert.NotEmpty(reports);
         Assert.Equal(DownloadStage.Complete, reports.Last().Stage);
         Assert.Equal(100, reports.Last().PercentComplete);
+    }
+
+    [Fact]
+    public async Task GenerateAudioAsync_WhenBusy_WaitingRequestCanBeCancelled()
+    {
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var tts = CreateTestSynthesizer(new BlockingPipeline(firstStarted, releaseFirst));
+
+        Task<float[]> first = tts.GenerateAudioAsync("first", "Carter");
+        await firstStarted.Task;
+
+        using var cts = new CancellationTokenSource();
+        Task<float[]> second = tts.GenerateAudioAsync("second", "Emma", cts.Token);
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+
+        releaseFirst.SetResult();
+        await first;
+    }
+
+    [Fact]
+    public async Task GenerateAudioAsync_ReportsFirstAudioAndCompletionMetrics()
+    {
+        using var tts = CreateTestSynthesizer(new MetricsPipeline());
+        var reports = new List<GenerationMetric>();
+        tts.GenerationMetricReported += (_, metric) => reports.Add(metric);
+
+        float[] audio = await tts.GenerateAudioAsync("hello", "Carter");
+
+        Assert.Single(audio);
+        Assert.Equal(2, reports.Count);
+        Assert.Equal(GenerationMetricStage.FirstAudioReady, reports[0].Stage);
+        Assert.Equal(GenerationMetricStage.Completed, reports[1].Stage);
+        Assert.Equal("en-Carter_man", reports[0].VoiceName);
+        Assert.Equal("en-Carter_man", reports[1].VoiceName);
+        Assert.Equal(1, reports[0].FramesGenerated);
+        Assert.Equal(2, reports[1].FramesGenerated);
+        Assert.True(reports[1].Elapsed >= reports[0].Elapsed);
+    }
+
+    [Fact]
+    public async Task GenerateAudioAsync_StressSwitchesVoicesWithoutCrossRequestLeakage()
+    {
+        var pipeline = new TrackingPipeline();
+        using var tts = CreateTestSynthesizer(pipeline);
+        string[] voices = ["Carter", "Emma", "Davis", "Grace"];
+
+        Task<float[]>[] tasks = Enumerable.Range(0, 32)
+            .Select(i => tts.GenerateAudioAsync($"text-{i}", voices[i % voices.Length]))
+            .ToArray();
+
+        float[][] results = await Task.WhenAll(tasks);
+
+        Assert.Equal(1, pipeline.MaxConcurrency);
+        Assert.Equal(32, pipeline.Requests.Count);
+
+        for (int i = 0; i < results.Length; i++)
+        {
+            string expectedVoice = VibeVoiceSynthesizer.ResolveVoiceName(voices[i % voices.Length]);
+            Assert.Single(results[i]);
+            Assert.Equal(TrackingPipeline.GetVoiceMarker(expectedVoice), (int)results[i][0]);
+        }
+    }
+
+    private static VibeVoiceSynthesizer CreateTestSynthesizer(IGenerationPipeline pipeline)
+    {
+        return new VibeVoiceSynthesizer(
+            new VibeVoiceOptions { ModelPath = VibeVoiceOptions.GetDefaultModelPath() },
+            new VibeVoiceRuntimeDependencies
+            {
+                IsModelAvailable = static _ => true,
+                IsVoiceAvailable = static (_, _) => true,
+                EnsureModelAvailableAsync = static (_, _, _, _) => Task.CompletedTask,
+                EnsureVoiceAvailableAsync = static (_, _, _, _, _) => Task.CompletedTask,
+                CreatePipeline = (_, _) => pipeline
+            });
+    }
+
+    private sealed class BlockingPipeline(TaskCompletionSource firstStarted, TaskCompletionSource releaseFirst) : IGenerationPipeline
+    {
+        private int _callCount;
+
+        public float[] GenerateAudio(string text, string voice, CancellationToken cancellationToken, Action<GenerationMetric>? reportMetric = null)
+        {
+            if (Interlocked.Increment(ref _callCount) == 1)
+            {
+                firstStarted.SetResult();
+                releaseFirst.Task.GetAwaiter().GetResult();
+            }
+
+            return [1f];
+        }
+
+        public string[] GetAvailableVoices() => ["en-Carter_man", "en-Emma_woman"];
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class MetricsPipeline : IGenerationPipeline
+    {
+        public float[] GenerateAudio(string text, string voice, CancellationToken cancellationToken, Action<GenerationMetric>? reportMetric = null)
+        {
+            reportMetric?.Invoke(new GenerationMetric
+            {
+                Stage = GenerationMetricStage.FirstAudioReady,
+                VoiceName = voice,
+                Elapsed = TimeSpan.FromMilliseconds(15),
+                FramesGenerated = 1
+            });
+            reportMetric?.Invoke(new GenerationMetric
+            {
+                Stage = GenerationMetricStage.Completed,
+                VoiceName = voice,
+                Elapsed = TimeSpan.FromMilliseconds(40),
+                FramesGenerated = 2
+            });
+            return [1f];
+        }
+
+        public string[] GetAvailableVoices() => ["en-Carter_man"];
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class TrackingPipeline : IGenerationPipeline
+    {
+        private static readonly IReadOnlyDictionary<string, int> VoiceMarkers = new Dictionary<string, int>
+        {
+            ["en-Carter_man"] = 101,
+            ["en-Davis_man"] = 102,
+            ["en-Emma_woman"] = 103,
+            ["en-Grace_woman"] = 104
+        };
+
+        private int _currentConcurrency;
+        public int MaxConcurrency { get; private set; }
+        public ConcurrentQueue<string> Requests { get; } = new();
+
+        public static int GetVoiceMarker(string voice) => VoiceMarkers[voice];
+
+        public float[] GenerateAudio(string text, string voice, CancellationToken cancellationToken, Action<GenerationMetric>? reportMetric = null)
+        {
+            int current = Interlocked.Increment(ref _currentConcurrency);
+            MaxConcurrency = Math.Max(MaxConcurrency, current);
+            Requests.Enqueue(voice);
+
+            try
+            {
+                Thread.Sleep(10);
+                return [GetVoiceMarker(voice)];
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _currentConcurrency);
+            }
+        }
+
+        public string[] GetAvailableVoices() => ["en-Carter_man", "en-Davis_man", "en-Emma_woman", "en-Grace_woman"];
+
+        public void Dispose()
+        {
+        }
     }
 }

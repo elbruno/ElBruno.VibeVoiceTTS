@@ -179,7 +179,46 @@ builder.Services.AddVibeVoice(options =>
 // Then inject IVibeVoiceSynthesizer in your services
 ```
 
-### 9) Cancellation, metrics, streaming, and concurrent use
+### 9) Microsoft.Extensions.AI `ITextToSpeechClient`
+
+```csharp
+using ElBruno.VibeVoiceTTS.Extensions;
+using Microsoft.Extensions.AI;
+
+builder.Services.AddVibeVoice(
+    configure: options =>
+    {
+        options.SampleRate = 24000;
+    },
+    configureTextToSpeech: options =>
+    {
+        options.DefaultAudioFormat = VibeVoiceTextToSpeechOptions.WavMediaType;
+    });
+
+var client = app.Services.GetRequiredService<ITextToSpeechClient>();
+
+TextToSpeechResponse response = await client.GetAudioAsync(
+    "Hello from Microsoft.Extensions.AI!",
+    new TextToSpeechOptions
+    {
+        VoiceId = "Emma",
+        AudioFormat = "audio/pcm;format=s16le"
+    });
+
+var audio = response.Contents.OfType<DataContent>().Single();
+Console.WriteLine(audio.MediaType);
+// -> audio/pcm;rate=24000;channels=1;format=s16le
+```
+
+Supported adapter output types:
+
+- `audio/wav`
+- `audio/pcm;rate=24000;channels=1;format=f32le`
+- `audio/pcm;rate=24000;channels=1;format=s16le`
+
+`GetService(typeof(TextToSpeechClientMetadata))` returns provider metadata, `TextToSpeechOptions.VoiceId` maps to the existing VibeVoice voice presets/internal names, and `AdditionalProperties["sampleRate"]` is validated against the synthesizer's configured sample rate.
+
+### 10) Cancellation, metrics, streaming, and concurrent use
 
 ```csharp
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));

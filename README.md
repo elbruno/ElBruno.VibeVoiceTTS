@@ -28,6 +28,8 @@ A .NET library for text-to-speech synthesis using Microsoft's [VibeVoice-Realtim
 dotnet add package ElBruno.VibeVoiceTTS
 ```
 
+The package supports .NET 8 and .NET 11.
+
 ## Quick Start
 
 ### 1) Generate speech and save to WAV

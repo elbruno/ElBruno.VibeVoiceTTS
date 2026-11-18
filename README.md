@@ -143,11 +143,12 @@ Console.WriteLine(tts.StreamingCapabilities);
 Enable GPU acceleration by setting the execution provider and installing the corresponding NuGet package:
 
 ```bash
-# For DirectML (any Windows GPU — NVIDIA, AMD, Intel):
-dotnet add package Microsoft.ML.OnnxRuntime.DirectML
+# Keep the provider package at the same ONNX Runtime version used by VibeVoiceTTS (1.22.1).
+# For DirectML (Windows x64, ARM64, and x86):
+dotnet add package Microsoft.ML.OnnxRuntime.DirectML --version 1.22.1
 
 # For CUDA (NVIDIA only — Windows and Linux):
-dotnet add package Microsoft.ML.OnnxRuntime.Gpu
+dotnet add package Microsoft.ML.OnnxRuntime.Gpu --version 1.22.1
 ```
 
 ```csharp

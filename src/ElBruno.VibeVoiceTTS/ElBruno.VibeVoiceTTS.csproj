@@ -10,7 +10,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>ElBruno.VibeVoiceTTS</PackageId>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <Authors>Bruno Capuano</Authors>
     <Description>A .NET library for VibeVoice text-to-speech using ONNX Runtime. Supports automatic model download from HuggingFace, voice presets, and native C# inference with no Python dependency.</Description>
     <PackageTags>tts;text-to-speech;vibevoice;onnx;onnxruntime;speech;audio;ai;ml;microsoft-extensions-ai</PackageTags>
@@ -29,10 +29,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.*" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.*" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.*" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.22.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="11.0.0" Condition="'$(TargetFramework)' == 'net11.0'" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.*" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0" Condition="'$(TargetFramework)' == 'net11.0'" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.*" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="11.0.0" Condition="'$(TargetFramework)' == 'net11.0'" />
     <PackageReference Include="ElBruno.HuggingFace.Downloader" Version="1.6.2" />
   </ItemGroup>
 

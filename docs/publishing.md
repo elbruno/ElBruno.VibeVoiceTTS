@@ -50,17 +50,17 @@ This is the standard workflow — the version is derived from the release tag.
    - `src/ElBruno.VibeVoiceTTS/ElBruno.VibeVoiceTTS.csproj`
 
    ```xml
-   <Version>0.8.0</Version>
+   <Version>0.8.1</Version>
    ```
 
 2. **Commit and push** the version change to `main`
 3. **Create a GitHub Release:**
    - Go to the repo → **Releases** → **Draft a new release**
-   - Create a new tag: `v0.8.0` (must match the version in the csproj)
+   - Create a new tag: `v0.8.1` (must match the version in the csproj)
    - Fill in the release title and notes
    - Click **Publish release**
 4. The **Publish to NuGet** workflow runs automatically:
-   - Strips the `v` prefix from the tag → uses `0.8.0` as the package version
+   - Strips the `v` prefix from the tag → uses `0.8.1` as the package version
    - Tests both target frameworks, builds, packs, and pushes to NuGet.org
 
 ### Option B: Manual Dispatch
@@ -77,7 +77,7 @@ Use this as a fallback or for testing.
 The workflow (`.github/workflows/publish.yml`) uses **NuGet Trusted Publishing** — no long-lived API keys are needed.
 
 ```
-GitHub Release created (e.g. v0.8.0)
+GitHub Release created (e.g. v0.8.1)
   → GitHub Actions triggers publish.yml
     → Builds the ElBruno.VibeVoiceTTS project
     → Packs one .nupkg file
